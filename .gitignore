@@ -4,7 +4,8 @@
 *.dll
 *.so
 *.dylib
-
+dbmgr
+go.sum
 # Test binary, built with `go test -c`
 *.test
 
