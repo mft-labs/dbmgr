@@ -2,12 +2,16 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
 	_ "github.com/lib/pq"
 	"io/ioutil"
 	"strings"
 	"time"
+)
+const (
+	INSTALL_CONFIG="insert into amf_settings(setting_id, config_type, config, user_audit_info) values($1,$2,$3,$4)"
 )
 
 type DbMgr struct {
@@ -136,7 +140,106 @@ func (db *DbMgr) CreateSchema(url, schemaFile string) (err error) {
 	}
 	return nil
 }
+func (db *DbMgr) InitUiSettings(dburl string) (err error){
+	jsonStr2 := fmt.Sprintf(`{
+  "APP_BUTTON_BACKGROUND_COLOR": "#5897ce",
+  "APP_FAVICON_TYPE": "image/png",
+  "APP_FAVICON_URL": "/resources/img/adi-favicon.png",
+  "APP_LOGO_STYLES": "width:203px;margin-left:10px;margin-top:10px;",
+  "APP_LOGO_URL": "/resources/img/agiledatainc-200X50.png",
+  "APP_NAVBAR_HOVER_COLOR": "#5897ce",
+  "CDReceiveDisable": "True",
+  "CERTFILE": "certs/server.crt",
+  "COMMUNITY_NAME": "MFTLABS_COMM",
+  "COPYRIGHT_TEXT": "2022 Agile Data Inc, All rights are reserved.",
+  "DEFAULT_PAGE_SIZE": "23",
+  "DEFAULT_SCREEN": "Home",
+  "DISABLE_SFTP_GET": "false",
+  "EXTERNAL_PROXY_PASSWORD": "9oxFHmAtYsrLvOJY2jPWo8WHDMU5GtSFyGvKLQAqyWE",
+  "EXTERNAL_PROXY_URL": "http://localhost:58443",
+  "EXTERNAL_PROXY_USERNAME": "admin",
+  "EnableGlobalMailbox": "True",
+  "EnableVenafi": "Yes",
+  "Environments": "Prod,Non-Prod",
+  "FOOTER_BACKGROUND_COLOR": "navy",
+  "FOOTER_FONT_WEIGHT": "600",
+  "FOOTER_TEXT_COLOR": "#737690",
+  "HEADER_BACKGROUND_COLOR": "navy",
+  "HEADER_TEXT_COLOR": "#FFF",
+  "INTERNAL_PROXY_PASSWORD": "9oxFHmAtYsrLvOJY2jPWo8WHDMU5GtSFyGvKLQAqyWE",
+  "INTERNAL_PROXY_URL": "http://localhost:58443",
+  "INTERNAL_PROXY_USERNAME": "admin",
+  "KAFKA_HOST": "",
+  "KAFKA_PARTITION": "",
+  "KAFKA_PORT": "",
+  "KAFKA_TOPIC": "",
+  "KEYFILE": "certs/server.key",
+  "KEYS_PATH": "/apps/amf/amfdata/keys",
+  "KNOWNHOSTKEY_PARAM": "DC",
+  "MADownloadButton": "True",
+  "MQ_QUEUE_NAME": "amf_wf_registration_queue",
+  "MessageActivityPageSize": "50",
+  "ONBOARD_COMM_CREATE_CD_PROFILE": "CREATE_CD_PROFILE",
+  "ONBOARD_COMM_CREATE_SFTP_PROFILE": "CREATE_SFTP_PROFILE",
+  "ONBOARD_COMM_DELETE_CD_PROFILE": "DELETE_CD_PROFILE",
+  "ONBOARD_COMM_DELETE_SFTP_PROFILE": "DELETE_SFTP_PROFILE",
+  "ONBOARD_COMM_UPDATE_CD_PROFILE": "UPDATE_CD_PROFILE",
+  "ONBOARD_COMM_UPDATE_SFTP_PROFILE": "UPDATE_SFTP_PROFILE",
+  "ONBOARD_USER_GM_DELETE_MESSAGE_TYPE": "DELETE_GM_USER",
+  "ONBOARD_USER_GM_MESSAGE_TYPE": "CREATE_GM_USER",
+  "ONBOARD_USER_GM_UPDATE_MESSAGE_TYPE": "UPDATE_GM_USER",
+  "ONBOARD_USER_RECEIVER": "AMF_USER",
+  "ONBOARD_USER_SENDER": "AMF_USER",
+  "ONBOARD_USER_TM_DELETE_MESSAGE_TYPE": "DELETE_TM_USER",
+  "ONBOARD_USER_TM_MESSAGE_TYPE": "CREATE_TM_USER",
+  "ONBOARD_USER_TM_UPDATE_MESSAGE_TYPE": "UPDATE_TM_USER",
+  "SADownloadButton": "True",
+  "SFG_API_BASE_URL": "http://localhost:40074",
+  "SFG_API_BASE_URL_LIST": "http://localhost:40074",
+  "SFG_API_PASSWORD": "password",
+  "SFG_API_USERNAME": "amf_api_user",
+  "SFG_WORKFLOW_API": "http://localhost:40074/B2BAPIs/svc/workflows/?_include=name&_range=0-999&fieldList=names&searchFor=AMF",
+  "SFTP_OUTBOUND_PRIVATE_KEYID": "RwcEIjeoXCgmmencRSpkA5jc",
+  "STORAGE_ROOT": "/apps/amf/amfdata",
+  "ShowImportNavIcon": "true",
+  "TIMEZONE": "Asia/Calcutta",
+  "TLSV1": "TLS_RSA_WITH_AES_256_CBC_SHA",
+  "TLSV11": "TLS_RSA_WITH_AES_256_CBC_SHA",
+  "TLSV12": "TLS_RSA_WITH_AES_256_CBC_SHA256",
+  "UFA_DOWNLOAD_URL": "",
+  "UFA_VERSIONS": "1.0,2.0",
+  "USER_AUTH_TYPE": "Local",
+  "USE_SFTPD": "True",
+  "UseGlobalMailbox": "False",
+  "VERSION_NUMBER": "v21.10.01",
+  "db_url": "%s",
+  "disable_contextmenu": "oncontextmenu=\"return false;\"",
+  "elk_dashboard_url": "",
+"mq_qm" : "nats2",
+"mq_host" : "localhost",
+"mq_port" : "4222",
+"mq_channel" : "localhost:4222",
+"Apptitle": "AMF Dashboard",
+"Organization":"MFTLABS_AMF"
+}`,dburl)
 
+	settingId := "072eb030-69e1-473f-8d15-14c0c132f822"
+	loc, _ := time.LoadLocation("UTC")
+	createdTime := time.Now().In(loc)
+	auditInfo := map[string]string{
+		"created_by": "CMD",
+		"created_on": createdTime.Format("2006-01-02 15:04:05.000000"),
+		"last_modified_by": "",
+		"last_modified_on": "",
+	}
+	auditdata,aerr := json.Marshal(auditInfo)
+	if aerr!=nil{
+		fmt.Printf("\nFailed to marshal audit data%v",err)
+		return aerr
+	}
+	_, err = db.Con.Exec(INSTALL_CONFIG,settingId,"AMF Settings",jsonStr2,auditdata)
+	return err
+}
 func main() {
 	var conf string
 	var url string
@@ -158,6 +261,11 @@ func main() {
 		fmt.Printf("Error occurred while creating database schema:%v\n",err)
 	} else {
 		fmt.Printf("Database schema successfully created\n")
+		err = dbmgr.InitUiSettings(url)
+		if err!=nil {
+			fmt.Printf("Failed to initialize ui settings\n")
+		}
 	}
+
 
 }
