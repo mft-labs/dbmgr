@@ -32,6 +32,11 @@ func (db *DbMgr) InitDb(url string) *sql.DB {
 	return con
 }
 
+func (db *DbMgr) WriteFile(fpath string, contents []byte) ( error) {
+	err := ioutil.WriteFile(fpath,contents,0644)
+	return err
+}
+
 func (db *DbMgr) Connect2Db(url string) (error) {
 	db.Con = db.InitDb(url)
 	if db.Con == nil {
@@ -57,9 +62,71 @@ func (db *DbMgr) CreateSchema(url, schemaFile string) (err error) {
 		return
 	}
 	schema := string(contents)
-	fmt.Printf("Installing schema\n")
+
 	tablesList := make([]string,0)
 	tablesCount := 0
+	for _, statement := range strings.Split(schema, ";") {
+		statement = strings.TrimSpace(statement)
+		if strings.Contains(statement,"CREATE TABLE ") {
+			arr := strings.Split(statement,"(")
+			if len(arr)>0 {
+				tablename := strings.ToLower(strings.TrimSpace(arr[0][len("CREATE TABLE "):]))
+				tablesList = append(tablesList,tablename)
+				tablesCount += 1
+			}
+		}
+	}
+
+	validationQuery:=fmt.Sprintf(`SELECT
+									table_schema || '.' || table_name
+								FROM
+									information_schema.tables
+								WHERE
+									table_type = 'BASE TABLE'
+								AND
+									table_schema NOT IN ('pg_catalog', 'information_schema')`)
+	verifyTables  := make(map[string]bool)
+	for _, tablename := range tablesList {
+		verifyTables[strings.TrimSpace(tablename)] = true
+	}
+
+	rows, err := db.Con.Query(validationQuery)
+	if err!= nil {
+		text  := fmt.Sprintf("%v",err)
+		fmt.Printf("Database verification failed. Reason:%s\n",text)
+	} else {
+		defer rows.Close()
+
+		existingTablesCount := 0
+		matchedTables := make(map[string]bool)
+		for rows.Next() {
+			tableName := ""
+			rows.Scan(&tableName)
+			tableName = strings.TrimSpace(tableName)
+			arr := strings.Split(tableName, ".")
+			if len(arr) > 1 {
+				tableName = arr[1]
+			}
+			match := "Not Matched"
+			if _, ok := verifyTables[tableName]; ok {
+				match = "Matched"
+			}
+			text := fmt.Sprintf("TABLE:%s (%s)", tableName, match)
+			fmt.Printf("info:%v\n", text)
+			if match == "Matched" {
+				existingTablesCount += 1
+				matchedTables[tableName] = true
+			}
+		}
+		if tablesCount == existingTablesCount {
+			fmt.Printf("All the required tables are available in the database\n")
+			db.WriteFile("/apps/amf/amfdata/db-status",[]byte("Ready"))
+			return nil
+		}
+	}
+	fmt.Printf("Installing schema\n")
+	tablesList = make([]string,0)
+	tablesCount = 0
 	for _, statement := range strings.Split(schema, ";") {
 		//fmt.Printf("Statement: %v\n",statement)
 		statement = strings.TrimSpace(statement)
@@ -73,10 +140,11 @@ func (db *DbMgr) CreateSchema(url, schemaFile string) (err error) {
 		}
 		_, err := db.Con.Exec(statement)
 		if err != nil {
-			return fmt.Errorf( "Cant create statement :%s\n%v\n", statement,err)
+			//return fmt.Errorf( "Cant create statement :%s\n%v\n", statement,err)
+			fmt.Printf("Skipping existing create statement. Reason:%v\n",err)
 		}
 	}
-	validationQuery:=fmt.Sprintf(`SELECT
+	validationQuery=fmt.Sprintf(`SELECT
 									table_schema || '.' || table_name
 								FROM
 									information_schema.tables
@@ -86,13 +154,13 @@ func (db *DbMgr) CreateSchema(url, schemaFile string) (err error) {
 									table_schema NOT IN ('pg_catalog', 'information_schema')`)
 	//contents2, err := util.ReadFile(BASEPATH+"/amf/validations/table_validations.txt")
 	//tablesList := string(contents2)
-	verifyTables  := make(map[string]bool)
+	verifyTables  = make(map[string]bool)
 	//for _, tablename := range strings.Split(tablesList,"\n") {
 	for _, tablename := range tablesList {
 		verifyTables[strings.TrimSpace(tablename)] = true
 	}
 
-	rows, err := db.Con.Query(validationQuery)
+	rows, err = db.Con.Query(validationQuery)
 	if err!= nil {
 		text  := fmt.Sprintf("%v",err)
 		return fmt.Errorf("Failed to get tables list, reason:%s",text)
@@ -138,6 +206,7 @@ func (db *DbMgr) CreateSchema(url, schemaFile string) (err error) {
 			return fmt.Errorf("Failed to create schema, all the required tables are not created")
 		}
 	}
+	db.WriteFile("/apps/amf/amfdata/db-status",[]byte("Ready"))
 	return nil
 }
 func (db *DbMgr) InitUiSettings(dburl string) (err error){
@@ -216,9 +285,9 @@ func (db *DbMgr) InitUiSettings(dburl string) (err error){
   "disable_contextmenu": "oncontextmenu=\"return false;\"",
   "elk_dashboard_url": "",
 "mq_qm" : "nats2",
-"mq_host" : "localhost",
+"mq_host" : "amfv2-nats",
 "mq_port" : "4222",
-"mq_channel" : "localhost:4222",
+"mq_channel" : "amfv2-nats:4222",
 "Apptitle": "AMF Dashboard",
 "Organization":"MFTLABS_AMF"
 }`,dburl)
